@@ -126,7 +126,22 @@ class MainViewModel(
                 }
             }
 
+            is MainServiceEvent.MeasureSpeedSuccess -> {
+                val request = testRequests.bulk?.takeIf { it.id == event.requestId } ?: return
+                viewModelScope.launch(ioDispatcher) {
+                    val gid = request.groupId
+                    cacheMutex.withLock { groupDataCache.remove(gid) }
+                    updateGroupUi(gid, loadGroup(gid, forceRefresh = true))
+                }
+            }
+
             is MainServiceEvent.MeasureConfigNotify -> {
+                if (event.requestId == testRequests.bulk?.id) {
+                    _uiState.update { it.copy(status = MainStatus.TestProgress(event.progress)) }
+                }
+            }
+
+            is MainServiceEvent.MeasureSpeedNotify -> {
                 if (event.requestId == testRequests.bulk?.id) {
                     _uiState.update { it.copy(status = MainStatus.TestProgress(event.progress)) }
                 }
@@ -136,11 +151,19 @@ class MainViewModel(
                 onTestsFinished(event.requestId)
             }
 
+            is MainServiceEvent.MeasureSpeedFinish -> {
+                onTestsFinished(event.requestId)
+            }
+
             is MainServiceEvent.MeasureDelayCancelled -> {
                 if (testRequests.completeCurrent(event.requestId)) resetTestStatus()
             }
 
             is MainServiceEvent.MeasureConfigCancelled -> {
+                if (testRequests.completeBulk(event.requestId) != null) resetTestStatus()
+            }
+
+            is MainServiceEvent.MeasureSpeedCancelled -> {
                 if (testRequests.completeBulk(event.requestId) != null) resetTestStatus()
             }
         }
@@ -206,6 +229,7 @@ class MainViewModel(
             MainAction.RefreshGroups -> setupGroupTab(forceRefresh = true)
             MainAction.TestAllServers -> testAllRealPing(true)
             MainAction.TestRealAllServers -> testAllRealPing()
+            MainAction.TestSpeedAllServers -> testSpeedAll()
             MainAction.CancelTesting -> cancelAllPing()
             MainAction.RemoveAllServers -> removeAllServerAsync()
             MainAction.RemoveDuplicateServers -> removeDuplicateServerAsync()
@@ -278,7 +302,8 @@ class MainViewModel(
             ServersCache(
                 guid = guid,
                 profile = profile.copy(),
-                testDelayMillis = affiliation?.testDelayMillis ?: 0L
+                testDelayMillis = affiliation?.testDelayMillis ?: 0L,
+                testSpeedMbps = affiliation?.testSpeedMbps ?: 0f
             )
         }
 
@@ -803,6 +828,49 @@ class MainViewModel(
         val requestId = testRequests.beginCurrent()
         _uiState.update { it.copy(isTesting = true, status = MainStatus.Testing) }
         dataSource.testCurrentServerRealPing(requestId)
+    }
+
+    fun testSpeedAll() {
+        cancelAllPing()
+        val groupId = uiState.value.selectedGroupId
+        val servers = currentServers()
+        if (servers.isEmpty()) {
+            return
+        }
+        val serverGuids = servers.map { it.guid }
+        mutableServerGroupState(groupId).update { current ->
+            current.copy(
+                servers = current.servers.map { server ->
+                    if (server.testSpeedMbps == 0f) server
+                    else server.copy(testSpeedMbps = 0f)
+                },
+                rows = current.rows.map { row ->
+                    if (row.testSpeedMbps == 0f) row
+                    else row.copy(testSpeedMbps = 0f)
+                }
+            )
+        }
+        val request = testRequests.beginBulk(groupId)
+        val message = TestServiceMessage(
+            key = AppConfig.MSG_MEASURE_SPEED_START,
+            subscriptionId = groupId,
+            serverGuids = if (keywordFilter.isNotEmpty()) serverGuids else emptyList()
+        )
+        _uiState.update {
+            it.copy(
+                isTesting = true,
+                status = MainStatus.Testing
+            )
+        }
+        bulkTestJob = viewModelScope.launch {
+            withContext(ioDispatcher) {
+                cacheMutex.withLock {
+                    dataSource.clearAllTestSpeedResults(serverGuids)
+                    groupDataCache.remove(groupId)
+                }
+            }
+            dataSource.sendMsg2TestService(message, request.id)
+        }
     }
 
     private fun onTestsFinished(requestId: String) {

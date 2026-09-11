@@ -195,6 +195,18 @@ object AppConfig {
     const val MSG_MEASURE_CONFIG_NOTIFY = 73
     const val MSG_MEASURE_CONFIG_FINISH = 74
 
+    const val MSG_MEASURE_SPEED_START = 9
+    const val MSG_MEASURE_SPEED_CANCEL = 91
+    const val MSG_MEASURE_SPEED_SUCCESS = 92
+    const val MSG_MEASURE_SPEED_NOTIFY = 93
+    const val MSG_MEASURE_SPEED_FINISH = 94
+
+    /** Default 10 MB download used for per-profile speed tests. */
+    const val SPEED_TEST_URL = "https://speed.cloudflare.com/__down?bytes=10485760"
+    const val SPEED_TEST_TIMEOUT_MS = 30000
+    const val SPEED_TEST_CONNECT_TIMEOUT_MS = 8000
+    const val SPEED_TEST_CONCURRENCY = 2
+
     const val MSG_SUB_UPDATE_START = 8
     const val MSG_SUB_UPDATE_CANCEL = 81
 

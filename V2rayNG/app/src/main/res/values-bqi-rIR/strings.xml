@@ -342,6 +342,8 @@
     <string name="title_sub_update">ورۊ کردن اشتراک بونکۊ سکویی</string>
     <string name="title_ping_all_server">آزمایش تئخیر TCP (TCPing)</string>
     <string name="title_real_ping_all_server">آزمایش تئخیر واقعی</string>
+    <string name="menu_test_speed">Test profile speed</string>
+    <string name="title_speed_test_all_server">Test speed of all profiles</string>
     <string name="title_user_asset_setting">فایلا بونچک جغرافیایی</string>
     <string name="title_sort_by_test_results">ترتیب و ری نتیجه یل پینگ</string>
     <string name="title_filter_config">فیلتر کردن کانفیگا</string>
@@ -398,6 +400,7 @@
     <string name="connection_test_testing_count">%d کانفیگ هونی آزمایش ابۊ…</string>
     <string name="connection_test_available">مووفق بی: منپیز %1$s طۊل کشی</string>
     <string name="server_test_delay_value">%1$d میلی‌ثانیه</string>
+    <string name="server_test_speed_value">%1$.1f Mbps</string>
     <string name="connection_test_error">منپیز و اینترنتن نجوست: %s</string>
     <string name="connection_test_fail">اینترنت من دسرس نؽ</string>
     <string name="connection_test_error_status_code">کود خطا: #%d</string>

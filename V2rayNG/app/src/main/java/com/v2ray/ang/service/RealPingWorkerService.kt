@@ -47,7 +47,7 @@ class RealPingWorkerService(
     private val guids: List<String>,
     private val onlyTcp: Boolean = false,
     private val onEvent: (RealPingEvent) -> Unit = {}
-) {
+) : TestBatchWorker {
     private val job = SupervisorJob()
     private val concurrency = SettingsManager.getRealPingConcurrency()
     private val dispatcher = Executors.newFixedThreadPool(if (onlyTcp) concurrency * 2 else concurrency).asCoroutineDispatcher()
@@ -92,7 +92,7 @@ class RealPingWorkerService(
         }
     }
 
-    fun cancel() {
+    override fun cancel() {
         job.cancel()
     }
 

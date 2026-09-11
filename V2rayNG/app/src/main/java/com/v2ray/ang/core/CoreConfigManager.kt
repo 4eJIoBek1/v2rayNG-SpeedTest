@@ -84,6 +84,66 @@ object CoreConfigManager {
     }
 
     /**
+     * Build a runtime configuration for per-profile download speed tests.
+     *
+     * Unlike [getV2rayConfig4Speedtest], the result keeps exactly one SOCKS
+     * inbound on loopback with the given port and no authentication, so a
+     * temporary core instance can serve downloads for a single profile without
+     * colliding with the ports of a running main core.
+     */
+    fun getV2rayConfig4SpeedProxy(context: Context, guid: String, socksPort: Int): ConfigResult {
+        try {
+            val base = getV2rayConfig(context, guid)
+            if (!base.status) {
+                return base
+            }
+            val json = JsonUtil.parseString(base.content)
+                ?: return ConfigResult(
+                    status = false,
+                    guid = guid,
+                    errorMessage = "Failed to parse runtime config for speedtest"
+                )
+            val inbounds = json.get("inbounds")?.takeIf { it.isJsonArray }?.asJsonArray
+                ?: return ConfigResult(
+                    status = false,
+                    guid = guid,
+                    errorMessage = "No inbounds in runtime config for speedtest"
+                )
+            val socks = inbounds.firstOrNull { element ->
+                element.isJsonObject
+                        && element.asJsonObject.get("protocol")?.takeIf { it.isJsonPrimitive }?.asString == "socks"
+            }?.asJsonObject
+                ?: return ConfigResult(
+                    status = false,
+                    guid = guid,
+                    errorMessage = "No SOCKS inbound in runtime config for speedtest"
+                )
+            socks.addProperty("listen", AppConfig.LOOPBACK)
+            socks.addProperty("port", socksPort)
+            socks.get("settings")?.takeIf { it.isJsonObject }?.asJsonObject?.let { settings ->
+                settings.addProperty("auth", "noauth")
+                settings.remove("accounts")
+            }
+            val single = JsonArray()
+            single.add(socks)
+            json.add("inbounds", single)
+
+            return ConfigResult(
+                status = true,
+                guid = guid,
+                content = JsonUtil.toJsonPretty(json) ?: base.content
+            )
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "Failed to get V2ray config for speed proxy", e)
+            return ConfigResult(
+                status = false,
+                guid = guid,
+                errorMessage = "Failed to get V2ray config: ${e.message ?: e.javaClass.simpleName}"
+            )
+        }
+    }
+
+    /**
      * Build configuration for custom profiles.
      */
     private fun buildV2rayCustomConfig(configContext: CoreConfigContext): ConfigResult {

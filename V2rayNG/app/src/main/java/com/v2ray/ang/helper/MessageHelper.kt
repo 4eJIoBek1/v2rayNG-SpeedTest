@@ -84,7 +84,8 @@ object MessageHelper {
             intent.putExtra("content", message)
             requestId?.let { intent.putExtra(EXTRA_REQUEST_ID, it) }
             when (message.key) {
-                AppConfig.MSG_MEASURE_CONFIG_START -> {
+                AppConfig.MSG_MEASURE_CONFIG_START,
+                AppConfig.MSG_MEASURE_SPEED_START -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         ContextCompat.startForegroundService(ctx, intent)
                     } else {
@@ -92,7 +93,8 @@ object MessageHelper {
                     }
                 }
 
-                AppConfig.MSG_MEASURE_CONFIG_CANCEL -> {
+                AppConfig.MSG_MEASURE_CONFIG_CANCEL,
+                AppConfig.MSG_MEASURE_SPEED_CANCEL -> {
                     // Do not wake up service just to cancel; stop only if it is already running.
                     ctx.stopService(intent)
                 }
@@ -105,6 +107,9 @@ object MessageHelper {
             LogUtil.e(AppConfig.TAG, "Failed to send message to test service", e)
             if (message.key == AppConfig.MSG_MEASURE_CONFIG_START) {
                 sendMsg2UI(ctx, AppConfig.MSG_MEASURE_CONFIG_CANCEL, "", requestId)
+            }
+            if (message.key == AppConfig.MSG_MEASURE_SPEED_START) {
+                sendMsg2UI(ctx, AppConfig.MSG_MEASURE_SPEED_CANCEL, "", requestId)
             }
         }
     }

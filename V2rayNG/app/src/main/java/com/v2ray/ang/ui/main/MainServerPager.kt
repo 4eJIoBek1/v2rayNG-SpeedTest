@@ -309,6 +309,11 @@ private fun ServerListItem(
     } else {
         stringResource(R.string.server_test_delay_value, row.testDelayMillis)
     }
+    val speedResult = if (row.testSpeedMbps <= 0f) {
+        ""
+    } else {
+        stringResource(R.string.server_test_speed_value, row.testSpeedMbps)
+    }
     val selectedStateDescription = if (isSelected) {
         stringResource(R.string.acc_selected_server)
     } else {
@@ -406,8 +411,11 @@ private fun ServerListItem(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(row.typeDescription, style = MaterialTheme.typography.bodySmall, color = colorConfigType, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(testResult, style = MaterialTheme.typography.bodySmall, color = if (row.testDelayMillis < 0L) colorPingRed else colorPing, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(row.typeDescription, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = colorConfigType, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (speedResult.isNotBlank()) {
+                    Text(speedResult, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = colorPing, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(testResult, Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = if (row.testDelayMillis < 0L) colorPingRed else colorPing, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

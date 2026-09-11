@@ -559,22 +559,47 @@ object AngConfigManager {
     /**
      * Sorts servers by test results for a subscription.
      *
+     * Profiles with a measured download speed come first (fastest on top).
+     * Profiles with only a delay result follow (lowest delay on top).
+     * Profiles without any test result go last.
+     *
      * @param subId The subscription ID.
      */
     fun sortByTestResultsForSub(subId: String) {
         val serverList = MmkvManager.decodeServerList(subId)
         if (serverList.isEmpty()) return
 
-        val sorted = serverList
-            .map { guid ->
-                val delay =
-                    MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L
-                guid to if (delay <= 0L) Long.MAX_VALUE else delay
-            }
-            .sortedBy { it.second }
-            .map { it.first }
-            .toMutableList()
+        val sorted = sortGuidsByTestResults(serverList) { guid ->
+            MmkvManager.decodeServerAffiliationInfo(guid)
+        }.toMutableList()
         MmkvManager.encodeServerList(sorted, subId)
+    }
+
+    /**
+     * Pure speed-first ordering over server GUIDs.
+     *
+     * @param guids Server GUIDs in current order.
+     * @param affiliationOf Resolves stored test results, null when absent.
+     * @return GUIDs ordered by descending speed, then ascending delay, untested last.
+     */
+    internal fun sortGuidsByTestResults(
+        guids: List<String>,
+        affiliationOf: (String) -> com.v2ray.ang.dto.entities.ServerAffiliationInfo?
+    ): List<String> {
+        return guids
+            .map { guid ->
+                val affiliation = affiliationOf(guid)
+                val speed = affiliation?.testSpeedMbps ?: 0f
+                val delay = affiliation?.testDelayMillis ?: 0L
+                Triple(guid, speed, delay)
+            }
+            .sortedWith(
+                compareByDescending<Triple<String, Float, Long>> { it.second }
+                    .thenBy { (_, speed, delay) ->
+                        if (speed > 0f) 0L else if (delay > 0L) delay else Long.MAX_VALUE
+                    }
+            )
+            .map { it.first }
     }
 
     /**

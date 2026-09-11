@@ -10,6 +10,7 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreNativeManager
 import com.v2ray.ang.dto.RealPingEvent
+import com.v2ray.ang.dto.SpeedtestEvent
 import com.v2ray.ang.dto.TestServiceMessage
 import com.v2ray.ang.enums.NotificationChannelType
 import com.v2ray.ang.extension.serializable
@@ -28,7 +29,7 @@ class CoreTestService : Service() {
     }
 
     // manage active batch workers so each batch is independent and cancellable
-    private val activeWorkers = ConcurrentHashMap<RealPingWorkerService, String>()
+    private val activeWorkers = ConcurrentHashMap<TestBatchWorker, String>()
     private val cancelAction by lazy {
         val intent = Intent(this, CoreTestService::class.java).putExtra(
             "content",
@@ -100,6 +101,18 @@ class CoreTestService : Service() {
                 message, startId, intent.getStringExtra(MessageHelper.EXTRA_REQUEST_ID).orEmpty()
             )
             AppConfig.MSG_MEASURE_CONFIG_CANCEL -> handleMeasureCancel()
+            AppConfig.MSG_MEASURE_SPEED_START -> {
+                NotificationHelper.updateNotification(
+                    channelType = NotificationChannelType.CORE_TEST,
+                    context = this,
+                    title = getString(R.string.app_name),
+                    content = getString(R.string.title_speed_test_all_server)
+                )
+                handleSpeedStart(
+                    message, startId, intent.getStringExtra(MessageHelper.EXTRA_REQUEST_ID).orEmpty()
+                )
+            }
+            AppConfig.MSG_MEASURE_SPEED_CANCEL -> handleMeasureCancel()
             else -> {
                 NotificationHelper.stopForeground(this); stopSelf(startId)
             }
@@ -182,12 +195,83 @@ class CoreTestService : Service() {
         stopSelf()
     }
 
+    private fun handleSpeedStart(message: TestServiceMessage, startId: Int, requestId: String) {
+        LogUtil.i(AppConfig.TAG, "CoreTestService starting speed worker   subscription ${message.subscriptionId}")
+
+        val guidsList = when {
+            message.serverGuids.isNotEmpty() -> message.serverGuids
+            message.subscriptionId.isNotEmpty() -> MmkvManager.decodeServerList(message.subscriptionId)
+            else -> MmkvManager.decodeAllServerList()
+        }
+
+        if (guidsList.isNotEmpty()) {
+            lateinit var worker: SpeedtestWorkerService
+            worker = SpeedtestWorkerService(
+                context = this,
+                guids = guidsList,
+                onEvent = { event ->
+                    if (activeWorkers.containsKey(worker)) {
+                        handleSpeedEvent(event, message, requestId) { activeWorkers.remove(worker) }
+                    }
+                }
+            )
+            activeWorkers[worker] = requestId
+            worker.start()
+        } else {
+            MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_CANCEL, "", requestId)
+            NotificationHelper.stopForeground(this)
+            stopSelf(startId)
+        }
+    }
+
+    private fun handleSpeedEvent(event: SpeedtestEvent, message: TestServiceMessage, requestId: String, onWorkerDone: () -> Unit) {
+        when (event) {
+            is SpeedtestEvent.Progress -> {
+                NotificationHelper.updateNotification(
+                    channelType = NotificationChannelType.CORE_TEST,
+                    context = this,
+                    title = getString(R.string.app_name),
+                    content = getString(R.string.connection_running_task_left, event.text)
+                )
+                MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_NOTIFY, event.text, requestId)
+            }
+
+            is SpeedtestEvent.Result -> {
+                MmkvManager.encodeServerTestSpeedMbps(event.guid, event.speedMbps)
+                MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_SUCCESS, event.guid, requestId)
+            }
+
+            is SpeedtestEvent.Finish -> {
+                // A failed download says nothing about profile validity, so unlike
+                // delay tests there is no auto-remove here. Auto-sort reuses the
+                // speed-first comparator shared with manual sorting.
+                if (message.subscriptionId.isNotEmpty()
+                    && MmkvManager.decodeSettingsBool(AppConfig.PREF_AUTO_SORT_AFTER_TEST, false)
+                ) {
+                    AngConfigManager.sortByTestResultsForSub(message.subscriptionId)
+                }
+
+                MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_FINISH, event.status, requestId)
+                onWorkerDone()
+                if (activeWorkers.isEmpty()) {
+                    NotificationHelper.stopForeground(this)
+                    stopSelf()
+                }
+            }
+        }
+    }
+
     private fun cancelWorkers() {
         // Reply for each cancelled request, never for a newer UI request that has not started here.
         activeWorkers.entries.toList().forEach { (worker, requestId) ->
             if (activeWorkers.remove(worker, requestId)) {
                 worker.cancel()
-                MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_CONFIG_CANCEL, "", requestId)
+                val cancelKey = if (worker is SpeedtestWorkerService) {
+                    AppConfig.MSG_MEASURE_SPEED_CANCEL
+                } else {
+                    AppConfig.MSG_MEASURE_CONFIG_CANCEL
+                }
+                MessageHelper.sendMsg2UI(this, cancelKey, "", requestId)
             }
         }
     }

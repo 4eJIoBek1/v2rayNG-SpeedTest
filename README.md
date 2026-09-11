@@ -79,6 +79,32 @@ Release files are signed with GPG to verify authenticity and integrity, helping 
 
 ---
 
+## Speed Test (fork addition)
+
+This fork adds a per-profile download speed test, similar to v2rayN's speedtest.
+
+- New overflow-menu entry **Test profile speed** (`menu_test_speed`) next to
+  **Test real delays**. It measures every profile of the current group one by
+  one (2 concurrent downloads).
+- For each profile a temporary core instance is started with a single SOCKS
+  inbound on a free loopback port (`CoreConfigManager.getV2rayConfig4SpeedProxy`),
+  then a 10 MB file is downloaded through it
+  (`https://speed.cloudflare.com/__down?bytes=10485760`, see
+  `AppConfig.SPEED_TEST_URL`). The speed in Mbps is
+  `(bytes * 8) / seconds / 1e6`; partial downloads count, so slow profiles
+  report a low speed instead of failing.
+- Results are stored per profile in `ServerAffiliationInfo.testSpeedMbps`
+  (alongside the delay result) and shown in the server list to the left of the
+  ping value (e.g. `12.3 Mbps`).
+- **Sort by test results** is speed-first: profiles with a measured speed come
+  first (fastest on top), then profiles with only a delay result (lowest delay
+  on top), then untested profiles. A failed download never deletes a profile.
+- The CI workflow (`.github/workflows/build.yml`) builds an unsigned
+  `assembleDebug` APK, so it runs on a fork without signing secrets or a
+  keystore.
+
+---
+
 ## Community / 社区
 
 Telegram Group / Telegram 群组：
