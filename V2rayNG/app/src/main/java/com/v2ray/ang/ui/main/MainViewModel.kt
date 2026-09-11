@@ -1,6 +1,7 @@
 package com.v2ray.ang.ui.main
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -18,6 +19,7 @@ import com.v2ray.ang.extension.isComplexType
 import com.v2ray.ang.extension.matchesPattern
 import com.v2ray.ang.extension.moveItem
 import com.v2ray.ang.ui.base.BaseViewModel
+import com.v2ray.ang.util.BatchRefreshThrottle
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -81,6 +83,10 @@ class MainViewModel(
     private val testRequests = MainTestRequests()
     private var bulkTestJob: Job? = null
 
+    // Throttles intermediate list rebuilds while a bulk test streams results.
+    // User-initiated refreshes and the final reload are never throttled.
+    private var lastBulkUiRefreshMs = 0L
+
     private val initialPageReady = CompletableDeferred<Unit>()
 
     // ---------- Service events ----------
@@ -119,6 +125,7 @@ class MainViewModel(
 
             is MainServiceEvent.MeasureConfigSuccess -> {
                 val request = testRequests.bulk?.takeIf { it.id == event.requestId } ?: return
+                if (!takeBulkUiRefreshSlot()) return
                 viewModelScope.launch(ioDispatcher) {
                     val gid = request.groupId
                     cacheMutex.withLock { groupDataCache.remove(gid) }
@@ -128,6 +135,7 @@ class MainViewModel(
 
             is MainServiceEvent.MeasureSpeedSuccess -> {
                 val request = testRequests.bulk?.takeIf { it.id == event.requestId } ?: return
+                if (!takeBulkUiRefreshSlot()) return
                 viewModelScope.launch(ioDispatcher) {
                     val gid = request.groupId
                     cacheMutex.withLock { groupDataCache.remove(gid) }
@@ -880,6 +888,20 @@ class MainViewModel(
             cacheMutex.withLock { groupDataCache.clear() }
             reloadAllGroups(_uiState.value.groups.map { it.id })
         }
+    }
+
+    /**
+     * Returns true at most once per [BatchRefreshThrottle.INTERVAL_MS] for
+     * intermediate bulk-test list rebuilds. The final reload in
+     * [onTestsFinished] always runs.
+     */
+    private fun takeBulkUiRefreshSlot(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (!BatchRefreshThrottle.shouldRefresh(now, lastBulkUiRefreshMs)) {
+            return false
+        }
+        lastBulkUiRefreshMs = now
+        return true
     }
 
     fun triggerLocateSelectedServer() {

@@ -137,8 +137,10 @@ class SpeedtestWorkerService(
                 LogUtil.e(AppConfig.TAG, "Speedtest controller failed for $guid", e)
                 return 0f
             }
+            var started = false
             try {
                 controller.startLoop(configResult.content, 0)
+                started = true
                 if (!waitForPort(socksPort, AppConfig.SPEED_TEST_CONNECT_TIMEOUT_MS)) {
                     LogUtil.w(AppConfig.TAG, "Speedtest proxy not ready for $guid")
                     return 0f
@@ -148,7 +150,9 @@ class SpeedtestWorkerService(
                 LogUtil.e(AppConfig.TAG, "Speedtest failed for $guid", e)
                 return 0f
             } finally {
-                runCatching { controller.stopLoop() }
+                if (started) {
+                    runCatching { controller.stopLoop() }
+                }
             }
         } finally {
             usedPorts.remove(socksPort)

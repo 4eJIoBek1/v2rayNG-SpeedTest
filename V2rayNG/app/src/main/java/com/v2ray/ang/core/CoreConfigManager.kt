@@ -127,6 +127,10 @@ object CoreConfigManager {
             val single = JsonArray()
             single.add(socks)
             json.add("inbounds", single)
+            // The stripped inbounds (local DNS, tun) are gone, so the core
+            // must resolve through the system resolver like latency tests do.
+            json.remove("dns")
+            json.remove("fakedns")
 
             return ConfigResult(
                 status = true,

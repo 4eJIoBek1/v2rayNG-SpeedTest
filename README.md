@@ -99,6 +99,10 @@ This fork adds a per-profile download speed test, similar to v2rayN's speedtest.
 - **Sort by test results** is speed-first: profiles with a measured speed come
   first (fastest on top), then profiles with only a delay result (lowest delay
   on top), then untested profiles. A failed download never deletes a profile.
+- Test batches (delay and speed) hold a CPU wake lock and a Wi-Fi lock, so
+  long batches keep progressing with the screen off. Intermediate list and
+  notification updates are throttled to at most once per second; the final
+  refresh always runs.
 - The CI workflow (`.github/workflows/build.yml`) builds an unsigned
   `assembleDebug` APK, so it runs on a fork without signing secrets or a
   keystore.

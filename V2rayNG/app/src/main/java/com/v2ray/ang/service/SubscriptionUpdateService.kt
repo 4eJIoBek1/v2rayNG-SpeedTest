@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreNativeManager
@@ -16,6 +17,7 @@ import com.v2ray.ang.handler.AngConfigManager
 import com.v2ray.ang.handler.AppLocaleManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.helper.NotificationHelper
+import com.v2ray.ang.util.BatchRefreshThrottle
 import com.v2ray.ang.util.LogUtil
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +43,10 @@ class SubscriptionUpdateService : Service() {
     // manage active batch workers so each batch is independent and cancellable
     private val activeWorkers = Collections.synchronizedList(mutableListOf<RealPingWorkerService>())
 
+    // CPU and Wi-Fi locks keep scheduled background tests progressing.
+    private val testLocks by lazy { TestBatchLocks(this) }
+    private var lastNotifyMs = 0L
+
     private val updateSemaphore = Semaphore(2)
 
     override fun onCreate() {
@@ -56,6 +62,7 @@ class SubscriptionUpdateService : Service() {
         snapshot.forEach { it.cancel() }
         activeWorkers.clear()
         serviceJob.cancel()
+        testLocks.release()
         NotificationHelper.stopForeground(this)
         NotificationHelper.cancel(NotificationChannelType.SUBSCRIPTION_UPDATE, this)
         super.onDestroy()
@@ -180,8 +187,13 @@ class SubscriptionUpdateService : Service() {
                 }
             )
             activeWorkers.add(worker)
+            testLocks.acquire()
             worker.start()
-            deferred.await()
+            try {
+                deferred.await()
+            } finally {
+                testLocks.release()
+            }
             LogUtil.i(AppConfig.TAG, "SubscriptionUpdateService: test phase finished for ${sub.subscription.remarks}")
         }
     }
@@ -194,11 +206,15 @@ class SubscriptionUpdateService : Service() {
                     event.text,
                     remarks
                 )
-                showNotification(
-                    context = this,
-                    titleResId = R.string.title_real_ping_all_server,
-                    content = notificationText
-                )
+                val now = SystemClock.elapsedRealtime()
+                if (BatchRefreshThrottle.shouldRefresh(now, lastNotifyMs)) {
+                    lastNotifyMs = now
+                    showNotification(
+                        context = this,
+                        titleResId = R.string.title_real_ping_all_server,
+                        content = notificationText
+                    )
+                }
                 LogUtil.i(AppConfig.TAG, "SubscriptionUpdateService: ${event.text} in $remarks")
             }
 

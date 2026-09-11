@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
@@ -19,6 +20,7 @@ import com.v2ray.ang.handler.AppLocaleManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.helper.MessageHelper
 import com.v2ray.ang.helper.NotificationHelper
+import com.v2ray.ang.util.BatchRefreshThrottle
 import com.v2ray.ang.util.LogUtil
 import java.util.concurrent.ConcurrentHashMap
 
@@ -30,6 +32,11 @@ class CoreTestService : Service() {
 
     // manage active batch workers so each batch is independent and cancellable
     private val activeWorkers = ConcurrentHashMap<TestBatchWorker, String>()
+
+    // CPU and Wi-Fi locks keep long batches progressing with the screen off.
+    // A foreground service alone does not keep the CPU awake.
+    private val testLocks by lazy { TestBatchLocks(this) }
+    private var lastNotifyMs = 0L
     private val cancelAction by lazy {
         val intent = Intent(this, CoreTestService::class.java).putExtra(
             "content",
@@ -71,6 +78,7 @@ class CoreTestService : Service() {
     override fun onDestroy() {
         LogUtil.i(AppConfig.TAG, "CoreTestService is being destroyed, cancelling ${activeWorkers.size} active workers")
         cancelWorkers()
+        testLocks.release()
         NotificationHelper.stopForeground(this)
         super.onDestroy()
     }
@@ -142,6 +150,7 @@ class CoreTestService : Service() {
                 }
             )
             activeWorkers[worker] = requestId
+            testLocks.acquire()
             worker.start()
         } else {
             MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_CONFIG_CANCEL, "", requestId)
@@ -153,12 +162,7 @@ class CoreTestService : Service() {
     private fun handleWorkerEvent(event: RealPingEvent, message: TestServiceMessage, requestId: String, onWorkerDone: () -> Unit) {
         when (event) {
             is RealPingEvent.Progress -> {
-                NotificationHelper.updateNotification(
-                    channelType = NotificationChannelType.CORE_TEST,
-                    context = this,
-                    title = getString(R.string.app_name),
-                    content = getString(R.string.connection_running_task_left, event.text)
-                )
+                notifyProgressThrottled(event.text)
                 MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_CONFIG_NOTIFY, event.text, requestId)
             }
 
@@ -181,6 +185,7 @@ class CoreTestService : Service() {
                 MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_CONFIG_FINISH, event.status, requestId)
                 onWorkerDone()
                 if (activeWorkers.isEmpty()) {
+                    testLocks.release()
                     NotificationHelper.stopForeground(this)
                     stopSelf()
                 }
@@ -216,6 +221,7 @@ class CoreTestService : Service() {
                 }
             )
             activeWorkers[worker] = requestId
+            testLocks.acquire()
             worker.start()
         } else {
             MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_CANCEL, "", requestId)
@@ -227,12 +233,7 @@ class CoreTestService : Service() {
     private fun handleSpeedEvent(event: SpeedtestEvent, message: TestServiceMessage, requestId: String, onWorkerDone: () -> Unit) {
         when (event) {
             is SpeedtestEvent.Progress -> {
-                NotificationHelper.updateNotification(
-                    channelType = NotificationChannelType.CORE_TEST,
-                    context = this,
-                    title = getString(R.string.app_name),
-                    content = getString(R.string.connection_running_task_left, event.text)
-                )
+                notifyProgressThrottled(event.text)
                 MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_NOTIFY, event.text, requestId)
             }
 
@@ -254,11 +255,30 @@ class CoreTestService : Service() {
                 MessageHelper.sendMsg2UI(this, AppConfig.MSG_MEASURE_SPEED_FINISH, event.status, requestId)
                 onWorkerDone()
                 if (activeWorkers.isEmpty()) {
+                    testLocks.release()
                     NotificationHelper.stopForeground(this)
                     stopSelf()
                 }
             }
         }
+    }
+
+    /**
+     * Progress notifications are throttled: with large groups per-result
+     * updates would spam the notification binder without visible benefit.
+     */
+    private fun notifyProgressThrottled(text: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (!BatchRefreshThrottle.shouldRefresh(now, lastNotifyMs)) {
+            return
+        }
+        lastNotifyMs = now
+        NotificationHelper.updateNotification(
+            channelType = NotificationChannelType.CORE_TEST,
+            context = this,
+            title = getString(R.string.app_name),
+            content = getString(R.string.connection_running_task_left, text)
+        )
     }
 
     private fun cancelWorkers() {
@@ -274,5 +294,6 @@ class CoreTestService : Service() {
                 MessageHelper.sendMsg2UI(this, cancelKey, "", requestId)
             }
         }
+        testLocks.release()
     }
 }
